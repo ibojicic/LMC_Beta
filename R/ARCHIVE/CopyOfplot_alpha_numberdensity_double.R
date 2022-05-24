@@ -1,0 +1,212 @@
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+
+source('R/combineRadioData.R')
+source('R/plot_fncts.R')
+source('R/utilities.R')
+
+limit.sumss <- 6
+limit.20cm <- 5
+
+data0 <- data.radio.numberdensity.twolowest
+
+data1 <- data0 %>% filter(`40cm_6` >= limit.sumss & `20cm_8` >= limit.20cm)
+
+data2 <- data0 %>% filter(!(idPNMain %in% data1$idPNMain))
+
+data3 <- data.radio.numberdensity.limits 
+
+data4 <- data3 %>% filter(`40cm_6` >= limit.sumss & `20cm_8` >= limit.20cm)
+
+
+numberofbins = 10
+
+## fixed sumss
+filename = paste("fixed_sumss_sumss_",limit.sumss,"mJy_20cm_",limit.20cm,"mJy.eps",sep = "",collapse = "")
+
+# data calculated just by limits
+
+
+sumsslimited.dots <- ggplot(data = data1, aes(x=`20cm_8`, y=lin_slope)) +
+	geom_point(size = 1, shape = 1, colour = 'navyblue') +
+	geom_point(data = data2, aes(x=`20cm_8`, y=lin_slope), size = 2,colour = 'grey80', shape = 0 ) +
+	# geom_point(data = data3, aes(x=`20cm_8`, y=lin_slope), size = 1,colour = 'slateblue2', shape = 4 ) +
+	geom_bin2d(data = data3,  aes(fill = ..density.. * 100), bins=90, drop = T) + #binwidth = c(0.04, 0.08)) +
+	scale_fill_viridis_c(option = "plasma", trans = 'log10') + 
+	geom_vline(xintercept = limit.20cm, size=0.8, linetype = '33', colour='grey50') +
+	geom_hline(yintercept = median(data1$lin_slope), size=0.8, linetype = '3111', colour='red') +
+	stat_function(fun = ~log(.x/limit.sumss)/log(1.384/0.834), 
+								inherit.aes = F, linetype = '33', fullrange = T, size = 0.8, colour='grey50')
+
+
+axis = list(size = 20)
+
+legend = list(
+	position = c(0.82,0.98),
+	textsize = 14,
+	justif = c("left", "top"),
+	guidesize = 4
+)
+
+sumsslimited.dots <- hist_plot_set(gplot = sumsslimited.dots,
+																	 xlab = '20cm Flux Density (mJy)',
+																	 ylab = 'Spectral Index',
+																		legendOff = F,
+																		axis = axis,
+																	 legend = legend) +
+	guides(fill = guide_colourbar(barwidth = 0.5, barheight = 5, title = 'dens.[%]')) +
+	theme(legend.background = element_rect(colour = 'black')) +
+	# ylim(-4, 2) +
+	# coord_cartesian(ylim = c(-4,2), xlim = c(1e-3,100)) +
+	annotation_logticks(sides = 'tb') +
+	scale_x_log10(sec.axis = dup_axis(labels = NULL, name = NULL),
+										 expand = expand_scale((mult = c(0, 0))),
+										 limits = c(1,2000)) + 
+	scale_y_continuous(sec.axis = dup_axis(labels = NULL, name = NULL),
+										 expand = expand_scale((mult = c(0, 0))),
+										 limits = c(-4.5,2.5), 
+										 labels=scaleFUN) + 
+	ggtitle(paste("S20cm >",limit.20cm,'mJy; S40cm>',limit.sumss,'mJy',sep = "",collapse = ""))
+
+
+numberofbins = 10
+
+data.forbinning <- rbind(data1,data4) %>% select(lin_slope,`20cm_8`) %>%
+	mutate(logFlux = log10(`20cm_8`)) %>% 
+	mutate(bin = cut_number(logFlux,numberofbins))
+
+binned <- data.forbinning %>% group_by(bin) %>% summarise_each(funs(median),lin_slope)
+binstartsends <- read.table(text = gsub("[^.0-9]", " ", levels(data.forbinning$bin)), col.names = c("lower", "upper"))
+binned <- cbind(binned, 10**binstartsends)
+lastrow <- tail(binned,1) %>% mutate(lower = upper)
+binned <- rbind(binned, lastrow)
+
+sumsslimited.medians <- ggplot() + 
+	geom_hline(yintercept = median(data1$lin_slope), size=0.8, linetype = '3111', colour='red') +
+	geom_step(data = binned, aes(lower,lin_slope), colour = 'navyblue', direction = 'hv', size = 1)
+
+sumsslimited.medians <- hist_plot_set(gplot = sumsslimited.medians,
+																	 xlab = '20cm Flux Density (mJy)',
+																	 ylab = 'med',
+																	 legendOff = F,
+																	 axis = axis,
+																	 legend = legend) +
+	annotation_logticks(sides = 'tb') +
+	scale_x_log10(sec.axis = dup_axis(labels = NULL, name = NULL),
+								expand = expand_scale((mult = c(0, 0))),
+								limits = c(1,2000)) + 
+	scale_y_continuous(sec.axis = dup_axis(labels = NULL, name = NULL),
+										 expand = expand_scale((mult = c(0, 0))),
+										 limits = c(-1.7,-0.3),
+										 breaks=seq(-2,-0.4,0.4)) 
+
+sumsslimited.dots <- sumsslimited.dots + 
+	theme(axis.title.x=element_blank(),
+				axis.text.x=element_blank(), 
+				axis.ticks.x=element_blank(),
+				plot.margin = unit(c(0.5, .5, 0.67, 0.3), "lines"))
+
+
+sumsslimited.medians <- sumsslimited.medians + 
+	theme(panel.grid.major.y = element_blank(),
+				panel.grid.minor.y = element_blank(), 
+				plot.margin = unit(c(0, .5, 0, 0.3), "lines"))
+
+sumsslimited.full <- grid.arrange(sumsslimited.dots,sumsslimited.medians,ncol=1,heights = c(2, 1))
+
+plot_hardopy(filename, sumsslimited.full, pl_height = 20, pl_width = 20)
+
+print(sumsslimited.full)
+
+## fixed 20cm
+filename = paste("fixed_20cm_sumss_",limit.sumss,"mJy_20cm_",limit.20cm,"mJy.eps",sep = "",collapse = "")
+
+
+
+limited20cm.dots <- ggplot(data = data1, aes(x=`40cm_6`, y=lin_slope)) +
+	geom_point(size = 1, shape = 1, colour = 'navyblue') +
+	geom_point(data = data2, aes(x=`40cm_6`, y=lin_slope), size = 2,colour = 'grey80', shape = 0 ) +
+	geom_point(data = data3, aes(x=`40cm_6`, y=lin_slope), size = 3,colour = 'magenta', shape = 25 ) +
+	# geom_bin2d(data = data3,  aes(fill = ..density.. * 100), bins=90, drop = T) + #binwidth = c(0.04, 0.08)) +
+	# scale_fill_viridis_c(option = "plasma", trans = 'log10') + 
+	geom_vline(xintercept = limit.sumss, size=0.8, linetype = '33', colour='grey50') +
+	geom_hline(yintercept = median(data1$lin_slope), size=0.8, linetype = '3111', colour='red') +
+	stat_function(fun = ~log(.x/limit.20cm)/log(0.834/1.384), 
+								inherit.aes = F, linetype = '33', fullrange = T, size = 0.8, colour='grey50')
+
+
+axis = list(size = 20)
+
+limited20cm.dots <- hist_plot_set(gplot = limited20cm.dots,
+																	 xlab = 'SUMSS Flux Density (mJy)',
+																	 ylab = 'Spectral Index',
+																	 legendOff = T,
+																	 axis = axis,
+																	 legend = legend) +
+	# guides(fill = guide_colourbar(barwidth = 0.5, barheight = 5, title = 'dens.[%]')) +
+	# theme(legend.background = element_rect(colour = 'black')) +
+	# ylim(-4, 2) +
+	# coord_cartesian(ylim = c(-4,2), xlim = c(1e-3,100)) +
+	annotation_logticks(sides = 'tb') +
+	scale_x_log10(sec.axis = dup_axis(labels = NULL, name = NULL),
+								expand = expand_scale((mult = c(0, 0))),
+								limits = c(4,3000)) + 
+	scale_y_continuous(sec.axis = dup_axis(labels = NULL, name = NULL),
+										 expand = expand_scale((mult = c(0, 0))),
+										 limits = c(-4.5,2.5), 
+										 labels=scaleFUN) + 
+	ggtitle(paste("S20cm >",limit.20cm,'mJy; S40cm>',limit.sumss,'mJy',sep = "",collapse = ""))
+
+
+numberofbins = 10
+
+data.forbinning <- rbind(data1,data4) %>% select(lin_slope,`40cm_6`) %>%
+	mutate(logFlux = log10(`40cm_6`)) %>% 
+	mutate(bin = cut_number(logFlux,numberofbins))
+
+binned <- data.forbinning %>% group_by(bin) %>% summarise_each(funs(median),lin_slope)
+binstartsends <- read.table(text = gsub("[^.0-9]", " ", levels(data.forbinning$bin)), col.names = c("lower", "upper"))
+# binstarts <- seq(min(data.forbinning$logFlux), max(data.forbinning$logFlux),length.out = (numberofbins + 1))
+binned <- cbind(binned, 10**binstartsends)
+lastrow <- tail(binned,1) %>% mutate(lower = upper)
+binned <- rbind(binned, lastrow)
+
+sumsslimited.medians <- ggplot() + 
+	geom_hline(yintercept = median(data1$lin_slope), size=0.8, linetype = '3111', colour='red') +
+	geom_step(data = binned, aes(lower,lin_slope), colour = 'navyblue', direction = 'hv', size = 1)
+
+sumsslimited.medians <- hist_plot_set(gplot = sumsslimited.medians,
+																			xlab = 'SUMSS Flux Density (mJy)',
+																			ylab = 'med',
+																			legendOff = F,
+																			axis = axis,
+																			legend = legend) +
+	annotation_logticks(sides = 'tb') +
+	scale_x_log10(sec.axis = dup_axis(labels = NULL, name = NULL),
+								expand = expand_scale((mult = c(0, 0))),
+								limits = c(4,3000)) + 
+	scale_y_continuous(sec.axis = dup_axis(labels = NULL, name = NULL),
+										 expand = expand_scale((mult = c(0, 0))),
+										 limits = c(-1.7,-0.3),
+										 breaks=seq(-2,-0.4,0.4)) 
+
+limited20cm.dots <- limited20cm.dots + 
+	theme(axis.title.x=element_blank(),
+				axis.text.x=element_blank(), 
+				axis.ticks.x=element_blank(),
+				plot.margin = unit(c(0.5, .5, 0.67, 0.3), "lines"))
+
+
+sumsslimited.medians <- sumsslimited.medians + 
+	theme(panel.grid.major.y = element_blank(),
+				panel.grid.minor.y = element_blank(), 
+				plot.margin = unit(c(0, .5, 0, 0.3), "lines"))
+
+limited20cm.full <- grid.arrange(limited20cm.dots,sumsslimited.medians,ncol=1,heights = c(2, 1))
+
+plot_hardopy(filename, limited20cm.full, pl_height = 20, pl_width = 20)
+
+print(limited20cm.full)
+
+
